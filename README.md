@@ -8,7 +8,7 @@
 A Windows virtual speaker and virtual microphone driver for the LSWR 1000 broadcast audio console, giving
 other Windows applications (DAWs, playout systems, conferencing/streaming tools) a selectable audio device
 to exchange audio with LSWR 1000 through — the same role Lawo's own "R3LAY WDM Driver" plays for the R3LAY
-console.
+console (which likewise exposes one WDM instance per console channel, not a single shared pair).
 
 This project is a fork of [VirtualDrivers/Virtual-Audio-Driver](https://github.com/VirtualDrivers/Virtual-Audio-Driver)
 by MikeTheTech (MIT licensed), itself built on Microsoft's own Sysvad ("Simple Audio Sample") WDM driver
@@ -16,16 +16,24 @@ sample. See `THIRD_PARTY_NOTICES.md` for full attribution.
 
 ## Overview
 
-A virtual audio driver set consists of:
+The driver package installs **12 fixed device instances**, "LSWR 1000 Channel 1" through "LSWR 1000
+Channel 12" — matching the console's maximum configurable channel count (`ConsoleConfiguration.MaxChannelCount`,
+4–12). All 12 are always installed; LSWR 1000 itself decides, based on how many channels the user's
+session is actually configured with (4 to 12), how many it uses — unused instances simply sit idle, the
+same way R3LAY always shows 8 WDM driver instances in Device Manager regardless of how many a given
+session uses.
 
-- **LSWR 1000 Virtual Speaker** ("fake" speaker output) — any Windows app can select this as its playback
-  device; audio sent to it is available for LSWR 1000 (or any other software) to read.
-- **LSWR 1000 Virtual Microphone** ("fake" mic input) — any Windows app can select this as its recording
+Each channel instance exposes a matched speaker/microphone pair:
+
+- **"LSWR 1000 Channel N Speaker"** ("fake" speaker output) — any Windows app can select this as its
+  playback device; audio sent to it is available for LSWR 1000 (or any other software) to read as that
+  channel's input.
+- **"LSWR 1000 Channel N Mic"** ("fake" mic input) — any Windows app can select this as its recording
   device; audio LSWR 1000 (or any other software) writes to it appears as that app's own microphone input.
 
-By installing this driver, other Windows applications can exchange audio with LSWR 1000 without any
-physical hardware in between — useful for routing a playout system, DAW, or conferencing app directly
-into/out of the console.
+By installing this driver, other Windows applications can exchange audio with any individual LSWR 1000
+channel without any physical hardware in between — useful for routing a playout system, DAW, or
+conferencing app directly into/out of a specific channel strip.
 
 ## Key Features
 
@@ -58,19 +66,31 @@ bcdedit /set testsigning on
 
 ## Installation
 
+Each of the 12 channel instances is a separate root-enumerated hardware ID
+(`ROOT\LSWR1000VirtualAudioCh1` .. `ROOT\LSWR1000VirtualAudioCh12`), all sharing the one signed driver
+binary/catalog. On Windows 11, the **Add Legacy Hardware** wizard is known to report "installed
+successfully" while creating zero actual device nodes for this kind of root-enumerated audio driver — use
+`devcon.exe` (included in the WDK/EWDK Tools folder) instead, which is the installation method Microsoft's
+own Sysvad samples document:
+
 1. Enable test signing (see above), if not using a production-signed release.
-2. Open **Device Manager** → **Audio inputs and outputs** → **Action** → **Add Legacy Hardware**.
-3. Choose **Install the hardware that I manually select from a list (Advanced)** → **Sound, video and
-   game controllers** → **Have Disk...** → locate `VirtualAudioDriver.inf`.
-4. Continue the installation.
-5. Verify: **Device Manager** → **Sound, video and game controllers** should show "LSWR 1000 Virtual
-   Speaker"; **Audio inputs and outputs** should show "LSWR 1000 Virtual Microphone".
+2. From an elevated prompt, install all 12 instances:
+   ```powershell
+   $inf = "path\to\package\VirtualAudioDriver.inf"
+   1..12 | ForEach-Object { devcon install $inf "ROOT\LSWR1000VirtualAudioCh$_" }
+   ```
+3. Verify: **Device Manager** → **Sound, video and game controllers** should show "LSWR 1000 Channel 1"
+   through "LSWR 1000 Channel 12"; **Audio inputs and outputs** should show the matching
+   "Alto-falantes (LSWR 1000 Channel N)" / mic group entries, and all 12 should be selectable in Windows'
+   own Sound settings.
+
+To remove an instance: `devcon remove "ROOT\LSWR1000VirtualAudioCh$_"`.
 
 ## Usage
 
-Select "LSWR 1000 Virtual Speaker" / "LSWR 1000 Virtual Microphone" as the playback/recording device in
-whichever application needs to exchange audio with LSWR 1000 — exactly like selecting any other real
-Windows audio device (Sound Settings, or the app's own audio device picker).
+Select "LSWR 1000 Channel N" as the playback/recording device — for whichever channel N an application
+needs to exchange audio with — exactly like selecting any other real Windows audio device (Sound Settings,
+or the app's own audio device picker).
 
 ## Attribution
 
